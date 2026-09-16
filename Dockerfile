@@ -13,9 +13,7 @@ RUN git clone --depth 1 https://github.com/tgmstudios/obsidian-livesync-headless
 WORKDIR /opt/livesync
 RUN npm install --omit=dev
 
-# vault の実体はここ（Railway の Volume をマウントする）
-VOLUME ["/vault"]
-
+# vault の実体は /vault に置く（Railway ダッシュボードの Volumes 機能でここにマウントする）
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
