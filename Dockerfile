@@ -15,6 +15,7 @@ RUN npm install --omit=dev
 
 # vault の実体は /vault に置く（Railway ダッシュボードの Volumes 機能でここにマウントする）
 COPY entrypoint.sh /entrypoint.sh
+COPY write_api.py /opt/write_api.py
 RUN chmod +x /entrypoint.sh
 
 ENTRYPOINT ["/usr/bin/tini", "--", "/entrypoint.sh"]

@@ -12,6 +12,7 @@ OIKB_DEBOUNCE="${OIKB_DEBOUNCE:-60}"
 : "${OPEN_WEBUI_URL:?OPEN_WEBUI_URL is required}"
 : "${OPEN_WEBUI_API_KEY:?OPEN_WEBUI_API_KEY is required}"
 : "${OIKB_KB_ID:?OIKB_KB_ID is required}"
+: "${WRITE_API_SECRET:?WRITE_API_SECRET is required}"
 
 mkdir -p "$VAULT_PATH"
 
@@ -38,10 +39,21 @@ EOF
 chmod 600 /opt/livesync/config.json
 
 # --- 2. LiveSync をバックグラウンドで常駐 ------------------------------
-echo "[worker] starting livesync-headless (vault=${VAULT_PATH}, interval=${SYNC_INTERVAL}s)"
+echo "[worker] starting livesync-headless loop (vault=${VAULT_PATH}, interval=${SYNC_INTERVAL}s)"
 cd /opt/livesync
-npm start &
+(
+  while true; do
+    npm start
+    echo "[livesync] process exited (likely one-shot sync finished), restarting in ${SYNC_INTERVAL}s..."
+    sleep "${SYNC_INTERVAL}"
+  done
+) &
 LIVESYNC_PID=$!
+
+# --- 2b. 書き込み用APIをバックグラウンドで起動 --------------------------
+echo "[worker] starting write_api on :${WRITE_API_PORT:-8090}"
+python3 /opt/write_api.py &
+WRITE_API_PID=$!
 
 # CouchDB からの初回フル取得を待つ
 sleep "${INITIAL_WAIT:-90}"
@@ -51,11 +63,17 @@ export OPEN_WEBUI_URL OPEN_WEBUI_API_KEY
 echo "[worker] initial sync to KB ${OIKB_KB_ID}"
 oikb sync "$VAULT_PATH" --kb-id "$OIKB_KB_ID" || echo "[worker] initial sync failed, continuing"
 
-echo "[worker] starting oikb watch (debounce=${OIKB_DEBOUNCE}s)"
-oikb watch "$VAULT_PATH" --kb-id "$OIKB_KB_ID" --debounce "$OIKB_DEBOUNCE" &
+echo "[worker] starting oikb watch loop (debounce=${OIKB_DEBOUNCE}s)"
+(
+  while true; do
+    oikb watch "$VAULT_PATH" --kb-id "$OIKB_KB_ID" --debounce "$OIKB_DEBOUNCE"
+    echo "[oikb] watch process exited, restarting in 5s..."
+    sleep 5
+  done
+) &
 OIKB_PID=$!
 
-# どちらかが死んだらコンテナごと落として Railway に再起動させる
-wait -n "$LIVESYNC_PID" "$OIKB_PID"
+# どれかが死んだらコンテナごと落として Railway に再起動させる
+wait -n "$LIVESYNC_PID" "$OIKB_PID" "$WRITE_API_PID"
 echo "[worker] a child process exited; shutting down"
 exit 1
