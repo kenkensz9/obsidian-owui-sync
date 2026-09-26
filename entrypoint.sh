@@ -14,43 +14,55 @@ OIKB_DEBOUNCE="${OIKB_DEBOUNCE:-60}"
 : "${OIKB_KB_ID:?OIKB_KB_ID is required}"
 : "${WRITE_API_SECRET:?WRITE_API_SECRET is required}"
 
-mkdir -p "$VAULT_PATH"
-
-# --- 1. LiveSync クライアントの設定を環境変数から生成 -------------------
-E2EE_ENABLED="${E2EE_ENABLED:-false}"
 E2EE_PASSPHRASE="${E2EE_PASSPHRASE:-}"
+OBFUSCATE_PASSPHRASE="${OBFUSCATE_PASSPHRASE:-$E2EE_PASSPHRASE}"
 
-cat > /opt/livesync/config.json <<EOF
+mkdir -p "$VAULT_PATH"
+mkdir -p /opt/bridge/dat
+
+# --- 1. livesync-bridge の設定ファイルを環境変数から生成 -----------------
+# 参考: https://github.com/vrtmrz/livesync-bridge の dat/config.sample.json
+cat > /opt/bridge/dat/config.json <<JSON
 {
-  "vaultPath": "${VAULT_PATH}",
-  "couchDB": {
-    "uri": "${COUCHDB_URI}",
-    "database": "${COUCHDB_DATABASE}",
-    "username": "${COUCHDB_USER}",
-    "password": "${COUCHDB_PASSWORD}"
-  },
-  "e2ee": {
-    "enabled": ${E2EE_ENABLED},
-    "passphrase": "${E2EE_PASSPHRASE}"
-  },
-  "syncIntervalSeconds": ${SYNC_INTERVAL}
+  "peers": [
+    {
+      "type": "couchdb",
+      "name": "obsidian-remote",
+      "group": "main",
+      "database": "${COUCHDB_DATABASE}",
+      "username": "${COUCHDB_USER}",
+      "password": "${COUCHDB_PASSWORD}",
+      "url": "${COUCHDB_URI}",
+      "passphrase": "${E2EE_PASSPHRASE}",
+      "obfuscatePassphrase": "${OBFUSCATE_PASSPHRASE}"
+    },
+    {
+      "type": "storage",
+      "name": "local-vault",
+      "group": "main",
+      "baseDir": "${VAULT_PATH}"
+    }
+  ]
 }
-EOF
-chmod 600 /opt/livesync/config.json
+JSON
+chmod 600 /opt/bridge/dat/config.json
 
-# --- 2. LiveSync をバックグラウンドで常駐 ------------------------------
-echo "[worker] starting livesync-headless loop (vault=${VAULT_PATH}, interval=${SYNC_INTERVAL}s)"
-cd /opt/livesync
+echo "[worker] generated config:"
+cat /opt/bridge/dat/config.json | sed -E 's/"(password|passphrase|obfuscatePassphrase)": "[^"]*"/"\1": "***"/g'
+
+# --- 2. livesync-bridge をバックグラウンドで常駐(異常終了しても自動再起動) ---
+echo "[worker] starting livesync-bridge (deno)"
+cd /opt/bridge
 (
   while true; do
-    npm start
-    echo "[livesync] process exited (likely one-shot sync finished), restarting in ${SYNC_INTERVAL}s..."
+    deno task run
+    echo "[bridge] process exited, restarting in ${SYNC_INTERVAL}s..."
     sleep "${SYNC_INTERVAL}"
   done
 ) &
-LIVESYNC_PID=$!
+BRIDGE_PID=$!
 
-# --- 2b. 書き込み用APIをバックグラウンドで起動 --------------------------
+# --- 3. 書き込み用APIをバックグラウンドで起動 ----------------------------
 echo "[worker] starting write_api on :${WRITE_API_PORT:-8090}"
 python3 /opt/write_api.py &
 WRITE_API_PID=$!
@@ -58,7 +70,7 @@ WRITE_API_PID=$!
 # CouchDB からの初回フル取得を待つ
 sleep "${INITIAL_WAIT:-90}"
 
-# --- 3. oikb の watch モードで Knowledge Base へ差分同期 ----------------
+# --- 4. oikb の watch モードで Knowledge Base へ差分同期 ------------------
 export OPEN_WEBUI_URL OPEN_WEBUI_API_KEY
 echo "[worker] initial sync to KB ${OIKB_KB_ID}"
 oikb sync "$VAULT_PATH" --kb-id "$OIKB_KB_ID" || echo "[worker] initial sync failed, continuing"
@@ -74,6 +86,6 @@ echo "[worker] starting oikb watch loop (debounce=${OIKB_DEBOUNCE}s)"
 OIKB_PID=$!
 
 # どれかが死んだらコンテナごと落として Railway に再起動させる
-wait -n "$LIVESYNC_PID" "$OIKB_PID" "$WRITE_API_PID"
+wait -n "$BRIDGE_PID" "$OIKB_PID" "$WRITE_API_PID"
 echo "[worker] a child process exited; shutting down"
 exit 1
