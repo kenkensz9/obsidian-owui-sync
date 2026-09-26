@@ -17,6 +17,13 @@ OIKB_DEBOUNCE="${OIKB_DEBOUNCE:-60}"
 E2EE_PASSPHRASE="${E2EE_PASSPHRASE:-}"
 OBFUSCATE_PASSPHRASE="${OBFUSCATE_PASSPHRASE:-$E2EE_PASSPHRASE}"
 
+# チャンク分割の設定。Obsidian公式プラグイン側の実値と合わせること。
+# USE_REMOTE_TWEAKS=true にしておけば、起動時にリモート(Obsidian側)の
+# 実際の設定を見てcustomChunkSize/minimumChunkSizeを自動調整してくれる。
+CHUNK_CUSTOM_SIZE="${CHUNK_CUSTOM_SIZE:-100}"
+CHUNK_MINIMUM_SIZE="${CHUNK_MINIMUM_SIZE:-20}"
+USE_REMOTE_TWEAKS="${USE_REMOTE_TWEAKS:-true}"
+
 mkdir -p "$VAULT_PATH"
 mkdir -p /opt/bridge/dat
 
@@ -35,7 +42,10 @@ cat > /opt/bridge/dat/config.json <<JSON
       "url": "${COUCHDB_URI}",
       "passphrase": "${E2EE_PASSPHRASE}",
       "obfuscatePassphrase": "${OBFUSCATE_PASSPHRASE}",
-      "baseDir": ""
+      "baseDir": "",
+      "customChunkSize": ${CHUNK_CUSTOM_SIZE},
+      "minimumChunkSize": ${CHUNK_MINIMUM_SIZE},
+      "useRemoteTweaks": ${USE_REMOTE_TWEAKS}
     },
     {
       "type": "storage",
