@@ -34,7 +34,8 @@ cat > /opt/bridge/dat/config.json <<JSON
       "password": "${COUCHDB_PASSWORD}",
       "url": "${COUCHDB_URI}",
       "passphrase": "${E2EE_PASSPHRASE}",
-      "obfuscatePassphrase": "${OBFUSCATE_PASSPHRASE}"
+      "obfuscatePassphrase": "${OBFUSCATE_PASSPHRASE}",
+      "baseDir": ""
     },
     {
       "type": "storage",
